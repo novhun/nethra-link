@@ -24,7 +24,16 @@ from networking.ssl_gen import generate_self_signed_cert
 
 log = logging.getLogger(__name__)
 
-_HTML_PATH = Path(__file__).parent / "camera_page.html"
+def get_resource_path(relative_path):
+    import sys
+    import os
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    # Default fallback for development
+    base = Path(__file__).parent.parent.parent
+    return os.path.join(base, relative_path)
+
+_HTML_PATH = Path(get_resource_path("src/server/camera_page.html"))
 
 
 class WebSocketServer:

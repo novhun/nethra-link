@@ -30,8 +30,16 @@ from gui.widgets import ConnectionTab, LiveFeedTab
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
+def get_resource_path(relative_path):
+    import sys
+    import os
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, relative_path)
+
 APP_TITLE    = "NethraLink – Wireless Camera Bridge"
-QR_OUT_PATH  = os.path.join("assets", "qr_code.png")
+QR_OUT_PATH  = get_resource_path("assets/qr_code.png")
 SERVER_PORT  = 9000
 
 DARK_STYLE = """
@@ -88,7 +96,7 @@ class MainWindow(QMainWindow):
 
         # ── Window ────────────────────────────────────────────────────────
         self.setWindowTitle(APP_TITLE)
-        self.setWindowIcon(QIcon(os.path.join("assets", "icon.png")))
+        self.setWindowIcon(QIcon(get_resource_path("assets/icon.png")))
         self.setMinimumSize(QSize(860, 660))
         self.setStyleSheet(DARK_STYLE)
 
