@@ -12,6 +12,14 @@ internal package imports work regardless of where the script is invoked.
 
 import sys
 import os
+import logging
+import ctypes
+from pathlib import Path
+
+# Ensure Windows taskbar correctly groups the app and shows the icon
+if os.name == 'nt':
+    myappid = 'novhun.nethralink.camera.1.0'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 # ── Path setup ──────────────────────────────────────────────────────────────
 # Add 'src/' to the module search path so that 'from gui import …' etc. work

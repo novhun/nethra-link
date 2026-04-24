@@ -16,7 +16,7 @@ import queue
 import logging
 
 from PyQt6.QtCore import Qt, QSize, pyqtSlot, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QStatusBar, QLabel, QApplication, QPushButton
 )
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
 
         # ── Window ────────────────────────────────────────────────────────
         self.setWindowTitle(APP_TITLE)
+        self.setWindowIcon(QIcon(os.path.join("assets", "icon.png")))
         self.setMinimumSize(QSize(860, 660))
         self.setStyleSheet(DARK_STYLE)
 

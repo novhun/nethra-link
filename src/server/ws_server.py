@@ -109,6 +109,7 @@ class WebSocketServer:
     async def _serve(self, host: str) -> None:
         app = web.Application()
         app.router.add_get("/", self._handle_index)
+        app.router.add_get("/icon.png", self._handle_icon)
         app.router.add_get("/ws", self._handle_ws)
 
         self._runner = web.AppRunner(app)
@@ -141,6 +142,13 @@ class WebSocketServer:
     async def _handle_index(self, request: web.Request) -> web.Response:
         html = _HTML_PATH.read_text(encoding="utf-8")
         return web.Response(content_type="text/html", text=html)
+
+    async def _handle_icon(self, request: web.Request) -> web.Response:
+        icon_path = os.path.join("assets", "icon.png")
+        if os.path.exists(icon_path):
+            with open(icon_path, "rb") as f:
+                return web.Response(body=f.read(), content_type="image/png")
+        return web.Response(status=404)
 
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024)
