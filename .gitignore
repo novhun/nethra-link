@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Project specific
+assets/qr_code.png
+assets/cert.pem
+assets/key.pem
+screenshots/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# Distribution
+dist/
+build/
+*.spec

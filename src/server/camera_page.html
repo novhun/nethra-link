@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>NethraLink – Ultra Camera</title>
+  <style>
+    :root {
+      --bg: #0D0F1A; --surface: rgba(17,20,43,0.92);
+      --border: #2A2F50; --accent: #4A6CF7; --accent2: #6A3DE8;
+      --text: #E0E6FF; --muted: #6070A0;
+      --green: #27AE60; --red: #E74C3C; --orange: #F39C12;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100dvh;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden; touch-action: none; user-select: none;
+    }
+    #wrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+    #cam-box {
+      position: relative; width: 100%; height: 100%;
+      transition: transform 0.4s cubic-bezier(.4,0,.2,1);
+    }
+    #cam-box.landscape { transform: rotate(90deg); width: 100dvh; height: 100dvw; }
+
+    video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s; }
+    #video.mirrored { transform: scaleX(-1); }
+    canvas { display: none; }
+
+    /* ── UI ── */
+    #top {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+      padding: 14px 18px;
+      background: linear-gradient(to bottom, rgba(13,15,26,.92), transparent);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .brand { font-size: 15px; font-weight: 800; letter-spacing: .4px; }
+    .brand span {
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    #pill {
+      margin-left: auto; display: flex; align-items: center; gap: 7px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 5px 13px;
+      font-size: 11px; font-weight: 700; backdrop-filter: blur(8px);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
+    .dot.ok { background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+    #rec {
+      position: absolute; top: 60px; right: 18px; z-index: 20;
+      display: none; align-items: center; gap: 6px;
+      background: rgba(231,76,60,.15); border: 1px solid var(--red);
+      border-radius: 8px; padding: 4px 10px;
+      font-size: 11px; font-weight: 700; color: var(--red);
+    }
+    #rec.show { display: flex; animation: recpulse 1.2s infinite; }
+    @keyframes recpulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    #bottom {
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+      padding: 16px 22px 36px;
+      background: linear-gradient(to top, rgba(13,15,26,.92), transparent);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .label-box {
+      font-size: 10px; color: var(--text); font-weight: 800;
+      background: var(--surface); padding: 5px 10px; border-radius: 6px;
+      border: 1px solid var(--border); backdrop-filter: blur(4px);
+    }
+
+    #btn-group { display: flex; gap: 14px; align-items: center; }
+    .icon-btn {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); font-size: 20px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(8px);
+    }
+    .icon-btn:active { transform: scale(.92); background: var(--border); }
+    .icon-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: var(--accent); }
+
+    /* ── Settings Panel ── */
+    #settings-panel {
+      position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+      width: 92%; max-width: 360px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 20px; z-index: 30;
+      display: none; flex-direction: column; gap: 15px;
+      backdrop-filter: blur(16px); box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+      max-height: 70vh; overflow-y: auto;
+    }
+    #settings-panel.show { display: flex; animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+
+    .setting-row { display: flex; flex-direction: column; gap: 8px; }
+    .setting-label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+    
+    select {
+      background: #0A0C18; color: var(--text); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 600; outline: none; width: 100%;
+    }
+
+    .flex-row { display: flex; gap: 10px; }
+    .toggle-btn {
+      flex: 1; padding: 12px; border-radius: 10px; background: #0A0C18; border: 1px solid var(--border);
+      color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; text-align: center;
+    }
+    .toggle-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Overlays ── */
+    #overlay {
+      position: absolute; inset: 0; z-index: 50;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; background: var(--bg); transition: opacity .5s;
+    }
+    #overlay.gone { opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div id="cam-box">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div id="top">
+      <div class="brand">📡 <span>NethraLink</span></div>
+      <div id="pill">
+        <div class="dot" id="dot"></div>
+        <span id="status-text">Connecting…</span>
+      </div>
+    </div>
+
+    <div id="rec">● STREAMING</div>
+
+    <div id="settings-panel">
+      <div class="setting-row">
+        <div class="setting-label">Camera Source</div>
+        <select id="cam-select" onchange="applySettings()"></select>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">Resolution & Ratio</div>
+        <select id="res-select" onchange="applySettings()">
+          <optgroup label="Standard (16:9)">
+            <option value="1920x1080">1920 x 1080 (Full HD)</option>
+            <option value="1280x720" selected>1280 x 720 (HD)</option>
+            <option value="854x480">854 x 480 (SD)</option>
+          </optgroup>
+          <optgroup label="Cinema / Ultra (21:9)">
+            <option value="2560x1080">2560 x 1080</option>
+            <option value="1920x810">1920 x 810</option>
+          </optgroup>
+          <optgroup label="Portrait (9:16)">
+            <option value="1080x1920">1080 x 1920 (TikTok/Reels)</option>
+            <option value="720x1280">720 x 1280</option>
+          </optgroup>
+          <optgroup label="Classic / Photography (3:2, 4:3)">
+            <option value="1080x720">1080 x 720 (3:2)</option>
+            <option value="960x720">960 x 720 (4:3)</option>
+            <option value="1440x1080">1440 x 1080 (4:3)</option>
+          </optgroup>
+          <optgroup label="Square (1:1)">
+            <option value="1080x1080">1080 x 1080</option>
+            <option value="720x720">720 x 720</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">View Mode</div>
+        <div class="flex-row">
+          <button class="toggle-btn active" onclick="setRatio('cover', this)">Full Screen</button>
+          <button class="toggle-btn" onclick="setRatio('contain', this)">Fit View</button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">Tools</div>
+        <div class="flex-row">
+          <button class="toggle-btn" id="flip-toggle" onclick="toggleMirror()">🪞 Mirror</button>
+          <button class="toggle-btn" id="landscape-toggle" onclick="toggleOrientation()">🔁 Rotate 90°</button>
+        </div>
+      </div>
+
+      <button class="icon-btn" style="width:100%; border-radius:12px; font-size:14px; font-weight:700; height:45px; margin-top:5px;" onclick="toggleSettings()">Done</button>
+    </div>
+
+    <div id="overlay">
+      <div class="spinner"></div>
+    </div>
+
+    <div id="bottom">
+      <div class="label-box" id="fps-label">-- FPS</div>
+      <div id="btn-group">
+        <button class="icon-btn" id="settings-btn" onclick="toggleSettings()">⚙️</button>
+      </div>
+      <div class="label-box" id="res-label">--</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const camSelect = document.getElementById('cam-select');
+  const resSelect = document.getElementById('res-select');
+  const settingsPanel = document.getElementById('settings-panel');
+  
+  let stream = null, ws = null, rafId = null;
+  let isLandscape = false, isMirrored = false;
+  let frameCount = 0, fpsTimer = performance.now();
+  let lastSend = 0;
+
+  async function init() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      document.getElementById('overlay').innerHTML = `
+        <div style="padding:40px; text-align:center;">
+          <div style="font-size:40px; margin-bottom:20px;">🔒</div>
+          <div style="font-weight:700; font-size:18px; color:#E74C3C; margin-bottom:15px;">Browser Security Block</div>
+          <div style="font-size:14px; color:#A0AACC; line-height:1.6;">
+            Camera access is blocked on <b>HTTP</b> connections for security.<br><br>
+            <b>To fix this:</b><br>
+            1. Use <b>Firefox</b> instead of Chrome.<br>
+            2. Or connect via <b>USB / ADB</b> and use the <b>ADB Link</b> button.<br>
+            3. Or use <b>HTTPS</b> (requires setup).
+          </div>
+          <button class="icon-btn" style="width:100%; border-radius:12px; margin-top:25px; font-size:14px;" onclick="location.reload()">Retry</button>
+        </div>
+      `;
+      return;
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(d => d.kind === 'videoinput');
+      camSelect.innerHTML = cameras.map(c => `<option value="${c.deviceId}">${c.label || 'Camera ' + (camSelect.length + 1)}</option>`).join('');
+      await startCamera();
+      document.getElementById('overlay').classList.add('gone');
+    } catch (e) { 
+      alert("Camera error: " + e.message); 
+    }
+  }
+
+  async function startCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    
+    const [w, h] = resSelect.value.split('x').map(Number);
+    const constraints = {
+      video: {
+        deviceId: camSelect.value ? { exact: camSelect.value } : undefined,
+        width: { ideal: w },
+        height: { ideal: h },
+        frameRate: { ideal: 30 }
+      }
+    };
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    
+    updateCanvasSize();
+    if (!ws) connectWS();
+  }
+
+  function updateCanvasSize() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    // Always match canvas to actual video output, swapped if rotated
+    if (isLandscape) { canvas.width = vh; canvas.height = vw; }
+    else { canvas.width = vw; canvas.height = vh; }
+    document.getElementById('res-label').textContent = `${vw}x${vh}`;
+  }
+
+  function toggleOrientation() {
+    isLandscape = !isLandscape;
+    document.getElementById('cam-box').classList.toggle('landscape', isLandscape);
+    document.getElementById('landscape-toggle').classList.toggle('active', isLandscape);
+    updateCanvasSize();
+  }
+
+  function toggleMirror() {
+    isMirrored = !isMirrored;
+    video.classList.toggle('mirrored', isMirrored);
+    document.getElementById('flip-toggle').classList.toggle('active', isMirrored);
+  }
+
+  function setRatio(mode, btn) {
+    video.style.objectFit = mode;
+    document.querySelectorAll('#settings-panel .toggle-btn').forEach(b => {
+      if (b.textContent.includes('Screen') || b.textContent.includes('Fit')) b.classList.remove('active');
+    });
+    btn.classList.add('active');
+  }
+
+  function toggleSettings() {
+    settingsPanel.classList.toggle('show');
+    document.getElementById('settings-btn').classList.toggle('active');
+  }
+
+  async function applySettings() { await startCamera(); }
+
+  function connectWS() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${protocol}//${location.host}/ws`;
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => {
+      document.getElementById('dot').classList.add('ok');
+      document.getElementById('status-text').textContent = 'Live ✓';
+      document.getElementById('rec').classList.add('show');
+      startLoop();
+    };
+    ws.onclose = () => {
+      document.getElementById('dot').classList.remove('ok');
+      document.getElementById('status-text').textContent = 'Reconnecting…';
+      document.getElementById('rec').classList.remove('show');
+      setTimeout(connectWS, 2000);
+    };
+  }
+
+  function startLoop() { if (!rafId) loop(); }
+  
+  function loop() {
+    rafId = requestAnimationFrame(loop);
+    const now = performance.now();
+
+    frameCount++;
+    if (now - fpsTimer >= 1000) {
+      document.getElementById('fps-label').textContent = `${frameCount} FPS`;
+      frameCount = 0; fpsTimer = now;
+    }
+
+    if (now - lastSend < 1000 / 15) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    lastSend = now;
+
+    const vw = video.videoWidth, vh = video.videoHeight;
+    ctx.save();
+    if (isLandscape) {
+      ctx.translate(vh/2, vw/2);
+      ctx.rotate(Math.PI/2);
+      if (isMirrored) ctx.scale(1, -1);
+      ctx.drawImage(video, -vw/2, -vh/2, vw, vh);
+    } else {
+      if (isMirrored) { ctx.translate(vw, 0); ctx.scale(-1, 1); }
+      ctx.drawImage(video, 0, 0);
+    }
+    ctx.restore();
+
+    canvas.toBlob(b => {
+      if (b && ws.readyState === WebSocket.OPEN) b.arrayBuffer().then(buf => ws.send(buf));
+    }, 'image/jpeg', 0.7);
+  }
+
+  init();
+</script>
+</body>
+</html>
