@@ -198,6 +198,7 @@
     <div id="bottom">
       <div class="label-box" id="fps-label">-- FPS</div>
       <div id="btn-group">
+        <button class="icon-btn" id="switch-btn" onclick="switchCamera()" style="display:none;">🔄</button>
         <button class="icon-btn" id="settings-btn" onclick="toggleSettings()">⚙️</button>
       </div>
       <div class="label-box" id="res-label">--</div>
@@ -237,18 +238,46 @@
       return;
     }
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const cameras = devices.filter(d => d.kind === 'videoinput');
-      camSelect.innerHTML = cameras.map(c => `<option value="${c.deviceId}">${c.label || 'Camera ' + (camSelect.length + 1)}</option>`).join('');
+      // 1. Start with default camera to trigger permission prompt
       await startCamera();
+      // 2. Now that we have permission, we can get full device labels
+      await refreshDeviceList();
       document.getElementById('overlay').classList.add('gone');
     } catch (e) { 
-      alert("Camera error: " + e.message); 
+      console.error("Camera init error:", e);
+      // Fallback: try to list cameras anyway
+      await refreshDeviceList();
+      if (camSelect.options.length > 0) {
+        document.getElementById('overlay').classList.add('gone');
+      } else {
+        alert("Camera error: " + e.message); 
+      }
+    }
+  }
+
+  async function refreshDeviceList() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(d => d.kind === 'videoinput');
+      
+      const currentId = camSelect.value;
+      camSelect.innerHTML = cameras.map((c, i) => {
+        const label = c.label || `Camera ${i + 1}`;
+        const selected = (c.deviceId === currentId) ? 'selected' : '';
+        return `<option value="${c.deviceId}" ${selected}>${label}</option>`;
+      }).join('');
+
+      // Show/hide quick switch button
+      document.getElementById('switch-btn').style.display = (cameras.length > 1) ? 'flex' : 'none';
+    } catch (e) {
+      console.error("Error enumerating devices:", e);
     }
   }
 
   async function startCamera() {
-    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+    }
     
     const [w, h] = resSelect.value.split('x').map(Number);
     const constraints = {
@@ -260,12 +289,24 @@
       }
     };
 
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-    video.srcObject = stream;
-    await new Promise(r => video.onloadedmetadata = r);
-    
-    updateCanvasSize();
-    if (!ws) connectWS();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await new Promise(r => video.onloadedmetadata = r);
+      
+      updateCanvasSize();
+      if (!ws) connectWS();
+    } catch (e) {
+      console.error("Error in startCamera:", e);
+      throw e;
+    }
+  }
+
+  async function switchCamera() {
+    if (camSelect.options.length <= 1) return;
+    let nextIndex = (camSelect.selectedIndex + 1) % camSelect.options.length;
+    camSelect.selectedIndex = nextIndex;
+    await applySettings();
   }
 
   function updateCanvasSize() {
