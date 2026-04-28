@@ -336,6 +336,8 @@ class MainWindow(QMainWindow):
         if device_id in self._camera_workers:
             worker = self._camera_workers.pop(device_id)
             worker.stop()
+            # Explicitly delete later to be safe, though wait() should have finished
+            worker.deleteLater()
             self._device_names.pop(device_id, None)
             
         self._dashboard_tab.remove_camera(device_id)
@@ -398,9 +400,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _stop_screen_stream(self) -> None:
-        if self._screen_worker and self._screen_worker.isRunning():
-            self._screen_worker.stop()
-        self._screen_worker = None
+        if self._screen_worker:
+            worker = self._screen_worker
+            self._screen_worker = None
+            if worker.isRunning():
+                worker.stop()
+            worker.deleteLater()
+            
         self._screen_tab.show_placeholder("Screen mirror stopped.")
         self._screen_tab.set_streaming_status(False)
         self._set_status("● Disconnected", "#E74C3C")
@@ -469,12 +475,12 @@ class MainWindow(QMainWindow):
         self._screen_tab._fps_combo.setCurrentText(settings.value("scr_fps", "15"))
         self._screen_tab._scale_combo.setCurrentText(settings.value("scr_scale", "75%"))
         self._dashboard_tab._scr_vname.setCurrentText(settings.value("scr_vcam_name", "Nethra Screen VCam"))
-        self._live_tab._vcam_name.setCurrentText(settings.value("cam_vcam_name", "Nethra Cam VCam"))
-        
-        # Sync Language Combo in SettingsTab
-        lang = translator.get_lang()
-        self._settings_tab._lang_combo.setCurrentIndex(1 if lang == "km" else 0)
         self._settings_tab._port_input.setText(str(self._server_port))
+        self._settings_tab._adb_input.setText(settings.value("adb_path", ""))
+        
+        # Apply adb path to manager immediately
+        import adb.manager as adb_mgr
+        adb_mgr.set_custom_adb_path(settings.value("adb_path", ""))
 
     def _save_settings(self):
         settings = QSettings("NethraLink", "Config")
@@ -493,11 +499,12 @@ class MainWindow(QMainWindow):
         settings.setValue("server_port", new_port)
         self._server_port = new_port
 
-        # Save Language from SettingsTab
-        lang_idx = self._settings_tab._lang_combo.currentIndex()
-        new_lang = "km" if lang_idx == 1 else "en"
-        settings.setValue("language", new_lang)
-        
+        # Save ADB path
+        adb_path = self._settings_tab._adb_input.text().strip()
+        settings.setValue("adb_path", adb_path)
+        import adb.manager as adb_mgr
+        adb_mgr.set_custom_adb_path(adb_path)
+
         # If language changed via settings tab, also update translator for current session
         translator.set_lang(new_lang)
         self._retranslate_ui()
@@ -540,8 +547,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._save_settings()
+        
+        # Stop workers carefully to avoid QBasicTimer errors
         self._stop_stream()
         self._stop_screen_stream()
+        
+        # Give a small moment for threads to clean up their internal resources
+        QApplication.processEvents()
+        
         self._server.stop()
         event.accept()
 

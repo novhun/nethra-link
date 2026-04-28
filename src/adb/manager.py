@@ -27,19 +27,46 @@ _CANDIDATE_PATHS = [
     Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk" / "platform-tools" / "adb.exe",
 ]
 
+# ── ADB global configuration ────────────────────────────────────────────────
+_CUSTOM_ADB_PATH: str | None = None
+
+def set_custom_adb_path(path: str | None) -> None:
+    """Set a custom path to the adb executable."""
+    global _CUSTOM_ADB_PATH
+    if path:
+        p = Path(path)
+        if p.is_dir():
+            _CUSTOM_ADB_PATH = str(p / "adb.exe") if os.name == 'nt' else str(p / "adb")
+        else:
+            _CUSTOM_ADB_PATH = str(p)
+    else:
+        _CUSTOM_ADB_PATH = None
+    log.debug("Custom ADB path set to: %s", _CUSTOM_ADB_PATH)
+
 
 def _adb_exe() -> str:
     """Return the first usable adb executable path."""
+    # 0. Check custom path first
+    if _CUSTOM_ADB_PATH:
+        if Path(_CUSTOM_ADB_PATH).exists():
+            return _CUSTOM_ADB_PATH
+        log.warning("Custom ADB path does not exist: %s", _CUSTOM_ADB_PATH)
+
     # 1. Check PATH (works after terminal restart)
     found = shutil.which("adb")
     if found:
         return found
+
     # 2. Check known install locations
     for candidate in _CANDIDATE_PATHS:
-        if candidate.exists():
-            log.debug("Using adb from: %s", candidate)
-            return str(candidate)
-    return "adb"  # will raise FileNotFoundError with clear message
+        try:
+            if candidate.exists():
+                log.debug("Using adb from: %s", candidate)
+                return str(candidate)
+        except Exception:
+            continue
+
+    return "adb"  # Fallback to string, which might fail with WinError 2 if not in PATH
 
 
 # ── Data types ──────────────────────────────────────────────────────────────

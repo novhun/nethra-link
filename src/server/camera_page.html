@@ -220,6 +220,7 @@
   let isLandscape = false, isMirrored = false;
   let frameCount = 0, fpsTimer = performance.now();
   let lastSend = 0;
+  let isProcessing = false; // Flag to prevent overlapping capture/send
 
   async function init() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -385,26 +386,42 @@
       frameCount = 0; fpsTimer = now;
     }
 
-    if (now - lastSend < 1000 / 60) return;
+    if (now - lastSend < 1000 / 30) return; // Cap at 30fps for stability on most phones
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (isProcessing) return; // Skip if still processing previous frame
+    
     lastSend = now;
+    isProcessing = true;
 
-    const vw = video.videoWidth, vh = video.videoHeight;
-    ctx.save();
-    if (isLandscape) {
-      ctx.translate(vh/2, vw/2);
-      ctx.rotate(Math.PI/2);
-      if (isMirrored) ctx.scale(1, -1);
-      ctx.drawImage(video, -vw/2, -vh/2, vw, vh);
-    } else {
-      if (isMirrored) { ctx.translate(vw, 0); ctx.scale(-1, 1); }
-      ctx.drawImage(video, 0, 0);
+    try {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      ctx.save();
+      if (isLandscape) {
+        ctx.translate(vh/2, vw/2);
+        ctx.rotate(Math.PI/2);
+        if (isMirrored) ctx.scale(1, -1);
+        ctx.drawImage(video, -vw/2, -vh/2, vw, vh);
+      } else {
+        if (isMirrored) { ctx.translate(vw, 0); ctx.scale(-1, 1); }
+        ctx.drawImage(video, 0, 0);
+      }
+      ctx.restore();
+
+      canvas.toBlob(async b => {
+        if (b && ws.readyState === WebSocket.OPEN) {
+          try {
+            const buf = await b.arrayBuffer();
+            ws.send(buf);
+          } catch (e) {
+            console.error("Buffer error:", e);
+          }
+        }
+        isProcessing = false; // Done processing
+      }, 'image/jpeg', 0.6); // Reduced quality slightly for better throughput
+    } catch (e) {
+      console.error("Loop error:", e);
+      isProcessing = false;
     }
-    ctx.restore();
-
-    canvas.toBlob(b => {
-      if (b && ws.readyState === WebSocket.OPEN) b.arrayBuffer().then(buf => ws.send(buf));
-    }, 'image/jpeg', 0.7);
   }
 
   init();

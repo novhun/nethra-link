@@ -1325,6 +1325,7 @@ class SettingsTab(QWidget):
         root.addWidget(self._srv_box)
 
         # ── Virtual Camera Drivers ─────────────────────────────────────────
+        # ── Virtual Camera Drivers ─────────────────────────────────────────
         self._drv_box = self._create_group("Virtual Camera Drivers")
         drv_lay = QVBoxLayout(self._drv_box)
         
@@ -1340,6 +1341,27 @@ class SettingsTab(QWidget):
         drv_lay.addLayout(backend_row)
         
         root.addWidget(self._drv_box)
+        
+        # ── ADB Configuration ──────────────────────────────────────────────
+        self._adb_box = self._create_group("ADB configuration")
+        adb_lay = QVBoxLayout(self._adb_box)
+        
+        adb_row = QHBoxLayout()
+        self._adb_label = QLabel("🛠️ ADB Executable Path")
+        adb_row.addWidget(self._adb_label)
+        self._adb_input = QLineEdit()
+        self._adb_input.setPlaceholderText("e.g. C:/platform-tools/adb.exe")
+        self._adb_input.setFixedWidth(250)
+        self._adb_input.setStyleSheet("background:#1E2236; border:1px solid #2A2F50; padding:5px; border-radius:6px; color:#7EB8F7;")
+        adb_row.addStretch()
+        adb_row.addWidget(self._adb_input)
+        adb_lay.addLayout(adb_row)
+        
+        adb_hint = QLabel("Optional. Leave empty to use system PATH or default locations.")
+        adb_hint.setStyleSheet("color:#506080; font-size:10px; font-style:italic;")
+        adb_lay.addWidget(adb_hint)
+        
+        root.addWidget(self._adb_box)
 
         root.addStretch()
 

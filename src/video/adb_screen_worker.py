@@ -51,6 +51,7 @@ class AdbScreenWorker(QThread):
         self._running    = False
         self._vcam_enabled = virtual_camera_enabled
         self._vcam_name = device_name
+        self._process: "subprocess.Popen | None" = None
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -71,6 +72,13 @@ class AdbScreenWorker(QThread):
 
     def stop(self) -> None:
         self._running = False
+        if self._process:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=0.5)
+            except:
+                try: self._process.kill()
+                except: pass
         self.quit()
         self.wait(2000)
 
@@ -233,30 +241,8 @@ class AdbScreenWorker(QThread):
     # ── Internals ──────────────────────────────────────────────────────────
 
     def _adb_cmd(self) -> list[str]:
-        import shutil
-        import os
-        from pathlib import Path
-
-        exe = shutil.which("adb")
-        if not exe:
-            candidates = [
-                # Windows
-                Path(os.path.expanduser("~")) / "platform-tools" / "adb.exe",
-                Path("C:/platform-tools/adb.exe"),
-                Path("C:/Android/platform-tools/adb.exe"),
-                # Mac / Linux
-                Path("/opt/homebrew/bin/adb"),
-                Path("/usr/local/bin/adb"),
-                Path(os.path.expanduser("~")) / "Library/Android/sdk/platform-tools/adb",
-                Path("/usr/bin/adb"),
-            ]
-            for c in candidates:
-                if c.exists():
-                    exe = str(c)
-                    break
-            else:
-                exe = "adb"
-
+        from adb.manager import _adb_exe
+        exe = _adb_exe()
         cmd = [exe]
         if self._serial:
             cmd += ["-s", self._serial]
@@ -266,26 +252,34 @@ class AdbScreenWorker(QThread):
         """Run `adb exec-out screencap -p` and return raw PNG bytes, or None."""
         cmd = self._adb_cmd() + ["exec-out", "screencap", "-p"]
         try:
-            # Increased timeout to 12s for slow ADB connections
-            result = subprocess.run(
+            self._process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                timeout=12,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
             
-            if result.returncode != 0:
-                err = result.stderr.decode(errors="replace").strip()
+            try:
+                stdout, stderr = self._process.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                stdout, stderr = self._process.communicate()
+                if not hasattr(self, '_last_timeout_log') or time.monotonic() - self._last_timeout_log > 15:
+                    log.warning("ADB screencap timed out (8s). Connection too slow?")
+                    self._last_timeout_log = time.monotonic()
+                return None
+
+            if self._process.returncode != 0:
+                err = stderr.decode(errors="replace").strip()
                 if "unauthorized" in err.lower() or "not found" in err.lower():
                     self.error.emit(f"Device error: {err}")
                     self._running = False
                 return None
 
-            if not result.stdout or len(result.stdout) < 1000:
+            if not stdout or len(stdout) < 1000:
                 return None
 
-            # Fix Windows line-ending corruption: \r\n → \n in PNG stream
-            # On macOS/Linux, exec-out is already binary-safe.
-            data = result.stdout
+            # Fix Windows line-ending corruption
+            data = stdout
             if subprocess.os.name == 'nt':
                 data = data.replace(b"\r\n", b"\n")
             return data
