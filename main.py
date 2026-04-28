@@ -37,8 +37,37 @@ def main() -> int:
     app.setApplicationName("NethraLink")
     app.setWindowIcon(QIcon(get_resource_path("assets/icon.png")))
     
-    default_font = QFont("Segoe UI", 10)
+    # Use native system font to avoid missing font warnings
+    default_font = app.font()
+    default_font.setPointSize(10)
+    if os.name == 'nt':
+        default_font.setFamily("Segoe UI")
     app.setFont(default_font)
+    
+    app.setStyleSheet("""
+        QMainWindow { background-color: #050505; }
+        QTabWidget::pane { border: none; background-color: #050505; }
+        QTabBar::tab {
+            background: #0D0F1A;
+            color: #7EB8F7;
+            padding: 12px 24px;
+            border: none;
+            font-size: 13px;
+            font-weight: bold;
+            margin-right: 2px;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        QTabBar::tab:selected {
+            background: #1E2236;
+            color: #FFFFFF;
+            border-bottom: 3px solid #F39C12;
+        }
+        QTabBar::tab:hover:!selected {
+            background: #151825;
+            color: #A0AACC;
+        }
+    """)
 
     window = MainWindow()
     window.show()

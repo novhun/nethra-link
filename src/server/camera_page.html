@@ -188,6 +188,7 @@
         </div>
       </div>
 
+      <button class="icon-btn" style="width:100%; border-radius:12px; margin-top:10px; font-size:13px; height:44px; background:#1E2744; margin-bottom:10px;" onclick="refreshDeviceList()">🔄 Refresh Cameras</button>
       <button class="icon-btn" style="width:100%; border-radius:12px; font-size:14px; font-weight:700; height:45px; margin-top:5px;" onclick="toggleSettings()">Done</button>
     </div>
 
@@ -199,6 +200,7 @@
       <div class="label-box" id="fps-label">-- FPS</div>
       <div id="btn-group">
         <button class="icon-btn" id="switch-btn" onclick="switchCamera()" style="display:none;">🔄</button>
+        <button class="icon-btn" id="screen-btn" onclick="location.href='/screen'" title="Screen Share">🖥️</button>
         <button class="icon-btn" id="settings-btn" onclick="toggleSettings()">⚙️</button>
       </div>
       <div class="label-box" id="res-label">--</div>
@@ -282,10 +284,10 @@
     const [w, h] = resSelect.value.split('x').map(Number);
     const constraints = {
       video: {
-        deviceId: camSelect.value ? { exact: camSelect.value } : undefined,
+        deviceId: camSelect.value ? camSelect.value : undefined,
         width: { ideal: w },
         height: { ideal: h },
-        frameRate: { ideal: 30 }
+        frameRate: { ideal: 60 }
       }
     };
 
@@ -346,8 +348,15 @@
   async function applySettings() { await startCamera(); }
 
   function connectWS() {
+    let deviceId = localStorage.getItem('nethra_id');
+    if (!deviceId) {
+      deviceId = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('nethra_id', deviceId);
+    }
+    const deviceName = encodeURIComponent(navigator.userAgent.split(' ')[0] || 'Phone');
+
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${location.host}/ws`;
+    const url = `${protocol}//${location.host}/ws?id=${deviceId}&name=${deviceName}`;
     ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
@@ -376,7 +385,7 @@
       frameCount = 0; fpsTimer = now;
     }
 
-    if (now - lastSend < 1000 / 15) return;
+    if (now - lastSend < 1000 / 60) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     lastSend = now;
 

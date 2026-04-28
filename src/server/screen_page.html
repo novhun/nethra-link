@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>NethraLink – Screen Share</title>
+  <style>
+    :root {
+      --bg: #0D0F1A; --surface: rgba(17,20,43,0.92);
+      --border: #2A2F50; --accent: #6A3DE8; --accent2: #4A6CF7;
+      --text: #E0E6FF; --muted: #6070A0;
+      --green: #27AE60; --red: #E74C3C; --orange: #F39C12;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100dvh;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden; user-select: none;
+    }
+    #wrap { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+    /* Preview */
+    #preview-box {
+      position: relative; width: 100%; flex: 1;
+      background: #000; display: flex; align-items: center; justify-content: center;
+    }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    canvas { display: none; }
+
+    /* Top bar */
+    #top {
+      width: 100%; z-index: 20; padding: 14px 18px;
+      background: linear-gradient(to bottom, rgba(13,15,26,.95), transparent);
+      display: flex; align-items: center; gap: 10px;
+      position: absolute; top: 0; left: 0;
+    }
+    .brand { font-size: 15px; font-weight: 800; }
+    .brand span {
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    #pill {
+      margin-left: auto; display: flex; align-items: center; gap: 7px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 5px 13px;
+      font-size: 11px; font-weight: 700; backdrop-filter: blur(8px);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
+    .dot.ok { background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+    #rec {
+      position: absolute; top: 60px; right: 18px; z-index: 20;
+      display: none; align-items: center; gap: 6px;
+      background: rgba(106,61,232,.2); border: 1px solid var(--accent);
+      border-radius: 8px; padding: 4px 10px;
+      font-size: 11px; font-weight: 700; color: #B08CFF;
+    }
+    #rec.show { display: flex; animation: recpulse 1.2s infinite; }
+    @keyframes recpulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* Bottom bar */
+    #bottom {
+      width: 100%; z-index: 20; padding: 16px 22px 36px;
+      background: linear-gradient(to top, rgba(13,15,26,.95), transparent);
+      display: flex; align-items: center; justify-content: space-between;
+      position: absolute; bottom: 0; left: 0;
+    }
+    .label-box {
+      font-size: 10px; color: var(--text); font-weight: 800;
+      background: var(--surface); padding: 5px 10px; border-radius: 6px;
+      border: 1px solid var(--border); backdrop-filter: blur(4px);
+    }
+    #btn-group { display: flex; gap: 14px; align-items: center; }
+    .icon-btn {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); font-size: 20px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(8px);
+    }
+    .icon-btn:active { transform: scale(.92); }
+    .icon-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: var(--accent); }
+
+    /* Start screen */
+    #start-screen {
+      position: absolute; inset: 0; z-index: 40;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; background: var(--bg); padding: 30px;
+    }
+    #start-screen.gone { display: none; }
+    .start-icon { font-size: 60px; }
+    .start-title { font-size: 22px; font-weight: 800; text-align: center; }
+    .start-desc {
+      font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6;
+      max-width: 300px;
+    }
+    #start-btn {
+      width: 100%; max-width: 300px; padding: 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font-size: 16px; font-weight: 700;
+      border: none; border-radius: 14px; cursor: pointer;
+    }
+    #start-btn:active { opacity: .85; transform: scale(.98); }
+    #back-link {
+      font-size: 13px; color: var(--accent2); text-decoration: none;
+      margin-top: 6px; font-weight: 600;
+    }
+
+    /* Error banner */
+    #error-banner {
+      position: absolute; top: 70px; left: 18px; right: 18px; z-index: 50;
+      background: rgba(231,76,60,.15); border: 1px solid var(--red);
+      border-radius: 10px; padding: 12px 16px;
+      font-size: 13px; color: #F4B1AE; line-height: 1.5;
+      display: none;
+    }
+    #error-banner.show { display: block; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div id="preview-box">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div id="top">
+      <div class="brand"><img src="/icon.png" style="width:24px;vertical-align:middle;margin-right:4px;"> <span>Screen Share</span></div>
+      <div id="pill">
+        <div class="dot" id="dot"></div>
+        <span id="status-text">Limited Support</span>
+      </div>
+    </div>
+
+    <div id="rec">▶ SHARING</div>
+    <div id="error-banner" class="show">
+      ⚠️ <b>Mobile Limitation:</b> Screen sharing is blocked by Android/iOS browsers for security.<br><br>
+      <b>To share your screen:</b><br>
+      1. Connect phone via <b>USB</b>.<br>
+      2. Use the <b>Screen Share</b> tab in the desktop app.<br>
+      3. No app or browser setup needed!
+    </div>
+
+    <div id="bottom">
+      <div class="label-box" id="fps-label">-- FPS</div>
+      <div id="btn-group">
+        <button class="icon-btn" id="cam-link-btn" onclick="goCamera()" title="Switch to Camera">📷</button>
+      </div>
+      <div class="label-box" id="res-label">--</div>
+    </div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="start-screen">
+    <div class="start-icon">🖥️</div>
+    <div class="start-title">Mobile Screen Share</div>
+    <div class="start-desc">
+      Browsers like Chrome on Android do not allow screen capture for security.<br><br>
+      Please use the <b>ADB Screen Mirror</b> feature in the NethraLink desktop app instead.
+    </div>
+    <button id="start-btn" onclick="goCamera()">← Back to Camera</button>
+  </div>
+</div>
+
+<script>
+  const video   = document.getElementById('video');
+  const canvas  = document.getElementById('canvas');
+  const ctx     = canvas.getContext('2d', { alpha: false });
+
+  let stream = null, ws = null, rafId = null;
+  let frameCount = 0, fpsTimer = performance.now(), lastSend = 0;
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  function connectWS() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws_screen`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => {
+      document.getElementById('dot').classList.add('ok');
+      document.getElementById('status-text').textContent = 'Live ✓';
+      document.getElementById('rec').classList.add('show');
+    };
+    ws.onclose = () => {
+      document.getElementById('dot').classList.remove('ok');
+      document.getElementById('status-text').textContent = 'Reconnecting…';
+      document.getElementById('rec').classList.remove('show');
+      setTimeout(connectWS, 2000);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  // ── Screen Capture ────────────────────────────────────────────────────────
+  async function startShare() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      showError('Screen sharing is not supported in this browser.<br>Try Chrome or Firefox on desktop/Android.');
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15, max: 30 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await new Promise(r => video.onloadedmetadata = r);
+
+      // Update canvas dimensions
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      document.getElementById('res-label').textContent = `${video.videoWidth}x${video.videoHeight}`;
+
+      // Hide start screen, connect WS, start loop
+      document.getElementById('start-screen').classList.add('gone');
+      connectWS();
+      startLoop();
+
+      // Handle user stopping via browser's built-in "Stop sharing" button
+      stream.getVideoTracks()[0].onended = () => stopShare();
+
+    } catch (e) {
+      if (e.name === 'NotAllowedError') {
+        showError('Permission denied. Please allow screen access and try again.');
+      } else {
+        showError('Could not start screen share: ' + e.message);
+      }
+    }
+  }
+
+  function stopShare() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    video.srcObject = null;
+    document.getElementById('start-screen').classList.remove('gone');
+    document.getElementById('rec').classList.remove('show');
+    document.getElementById('fps-label').textContent = '-- FPS';
+    document.getElementById('res-label').textContent = '--';
+  }
+
+  function goCamera() { location.href = '/'; }
+
+  // ── Render loop ───────────────────────────────────────────────────────────
+  function startLoop() { if (!rafId) loop(); }
+
+  function loop() {
+    rafId = requestAnimationFrame(loop);
+    const now = performance.now();
+
+    frameCount++;
+    if (now - fpsTimer >= 1000) {
+      document.getElementById('fps-label').textContent = `${frameCount} FPS`;
+      frameCount = 0; fpsTimer = now;
+    }
+
+    if (now - lastSend < 1000 / 15) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    lastSend = now;
+
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    ctx.drawImage(video, 0, 0, vw, vh);
+    canvas.toBlob(b => {
+      if (b && ws.readyState === WebSocket.OPEN)
+        b.arrayBuffer().then(buf => ws.send(buf));
+    }, 'image/jpeg', 0.75);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function showError(msg) {
+    const el = document.getElementById('error-banner');
+    el.innerHTML = '⚠️ ' + msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 6000);
+  }
+</script>
+</body>
+</html>

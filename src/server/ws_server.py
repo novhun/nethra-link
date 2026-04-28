@@ -3,9 +3,11 @@ ws_server.py
 ------------
 aiohttp HTTP + WebSocket server that:
   - Serves the phone camera page at  GET /
-  - Accepts WebSocket connections at  GET /ws
-  - Puts received JPEG bytes into a thread-safe queue.Queue
-    consumed by VideoWorker.
+  - Serves the screen share page at  GET /screen
+  - Accepts camera WebSocket at       GET /ws
+  - Accepts screen share WebSocket at GET /ws_screen
+  - Puts received JPEG bytes into thread-safe queue.Queues
+    consumed by VideoWorker instances.
 
 Runs inside a daemon thread with its own asyncio event loop so it
 never touches Qt's event loop.
@@ -33,7 +35,8 @@ def get_resource_path(relative_path):
     base = Path(__file__).parent.parent.parent
     return os.path.join(base, relative_path)
 
-_HTML_PATH = Path(get_resource_path("src/server/camera_page.html"))
+_HTML_PATH        = Path(get_resource_path("src/server/camera_page.html"))
+_SCREEN_HTML_PATH = Path(get_resource_path("src/server/screen_page.html"))
 
 
 class WebSocketServer:
@@ -42,16 +45,25 @@ class WebSocketServer:
     def __init__(self, port: int = 9000, frame_queue: "queue.Queue | None" = None):
         self._port = port
         self._frame_queue: queue.Queue = frame_queue or queue.Queue(maxsize=8)
+        # Dedicated queue for screen share frames
+        self._screen_queue: queue.Queue = queue.Queue(maxsize=8)
+
+        # Multi-device support: { device_id: { 'queue': queue.Queue, 'info': dict } }
+        self._devices = {}
+        self._screen_devices = {}
+
         self._loop: "asyncio.AbstractEventLoop | None" = None
         self._runner: "web.AppRunner | None" = None
         self._stop_event: "asyncio.Event | None" = None
         self._thread: "threading.Thread | None" = None
         self._on_connect = None
         self._on_disconnect = None
+        self._on_screen_connect = None
+        self._on_screen_disconnect = None
 
         # ── SSL Setup ──────────────────────────────────────────────────────
         self._cert_path = os.path.join("assets", "cert.pem")
-        self._key_path = os.path.join("assets", "key.pem")
+        self._key_path  = os.path.join("assets", "key.pem")
         try:
             generate_self_signed_cert(self._cert_path, self._key_path)
             self._use_ssl = True
@@ -69,9 +81,22 @@ class WebSocketServer:
     def frame_queue(self) -> queue.Queue:
         return self._frame_queue
 
+    @property
+    def screen_queue(self) -> queue.Queue:
+        return self._screen_queue
+
+    @property
+    def using_ssl(self) -> bool:
+        """Returns True if the server is using HTTPS/WSS."""
+        return self._use_ssl
+
     def set_callbacks(self, on_connect=None, on_disconnect=None):
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
+
+    def set_screen_callbacks(self, on_connect=None, on_disconnect=None):
+        self._on_screen_connect = on_connect
+        self._on_screen_disconnect = on_disconnect
 
     def start(self, host: str = "0.0.0.0") -> None:
         """Start the server in a background daemon thread."""
@@ -85,13 +110,11 @@ class WebSocketServer:
         if self._loop and self._loop.is_running():
             log.info("Stopping WebSocketServer...")
             try:
-                # Trigger internal cleanup
                 fut = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
                 fut.result(timeout=3)
             except Exception as e:
                 log.warning("Server shutdown error: %s", e)
-            
-            # Stop the loop
+
             self._loop.call_soon_threadsafe(self._loop.stop)
             if self._thread:
                 self._thread.join(timeout=1)
@@ -104,8 +127,7 @@ class WebSocketServer:
             self._stop_event.set()
         if self._runner:
             await self._runner.cleanup()
-        
-        # Await pending tasks to avoid 'Task was destroyed but it is pending'
+
         tasks = [t for t in asyncio.all_tasks(self._loop) if t is not asyncio.current_task()]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -117,9 +139,11 @@ class WebSocketServer:
 
     async def _serve(self, host: str) -> None:
         app = web.Application()
-        app.router.add_get("/", self._handle_index)
-        app.router.add_get("/icon.png", self._handle_icon)
-        app.router.add_get("/ws", self._handle_ws)
+        app.router.add_get("/",          self._handle_index)
+        app.router.add_get("/screen",    self._handle_screen)
+        app.router.add_get("/icon.png",  self._handle_icon)
+        app.router.add_get("/ws",        self._handle_ws)
+        app.router.add_get("/ws_screen", self._handle_ws_screen)
 
         self._runner = web.AppRunner(app)
         await self._runner.setup()
@@ -129,7 +153,6 @@ class WebSocketServer:
             ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_ctx.load_cert_chain(self._cert_path, self._key_path)
 
-        # Try to bind with a few retries for Windows TIME_WAIT issues
         max_retries = 3
         for i in range(max_retries):
             try:
@@ -140,16 +163,21 @@ class WebSocketServer:
                 if i == max_retries - 1: raise
                 log.warning(f"Port {self._port} busy, retrying in 2s... ({e})")
                 await asyncio.sleep(2)
-        
+
         proto = "https" if self._use_ssl else "http"
         log.info("NethraLink server  %s://%s:%d", proto, host, self._port)
 
         self._stop_event = asyncio.Event()
         await self._stop_event.wait()
 
+    # ── Route handlers ─────────────────────────────────────────────────────
 
     async def _handle_index(self, request: web.Request) -> web.Response:
         html = _HTML_PATH.read_text(encoding="utf-8")
+        return web.Response(content_type="text/html", text=html)
+
+    async def _handle_screen(self, request: web.Request) -> web.Response:
+        html = _SCREEN_HTML_PATH.read_text(encoding="utf-8")
         return web.Response(content_type="text/html", text=html)
 
     async def _handle_icon(self, request: web.Request) -> web.Response:
@@ -160,23 +188,59 @@ class WebSocketServer:
         return web.Response(status=404)
 
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        device_id = request.query.get("id", "default_cam")
+        device_name = request.query.get("name", "Unknown Phone")
+        
         ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024)
         await ws.prepare(request)
-
-        log.info("WebSocket client connected from %s", request.remote)
+        
+        log.info("Camera WS connected: %s (%s)", device_name, device_id)
+        
+        if device_id not in self._devices:
+            self._devices[device_id] = {
+                'queue': queue.Queue(maxsize=5),
+                'name': device_name,
+                'active': True
+            }
+        
         if self._on_connect:
-            self._on_connect()
+            self._on_connect(device_id, device_name, self._devices[device_id]['queue'])
+
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.BINARY:
+                    try:
+                        self._devices[device_id]['queue'].put_nowait(msg.data)
+                    except (queue.Full, KeyError):
+                        pass
+                elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
+                    break
+        finally:
+            log.info("Camera WS disconnected: %s", device_id)
+            if device_id in self._devices:
+                self._devices[device_id]['active'] = False
+            if self._on_disconnect:
+                self._on_disconnect(device_id)
+        
+        return ws
+
+    async def _handle_ws_screen(self, request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse(max_msg_size=10 * 1024 * 1024)
+        await ws.prepare(request)
+        log.info("Screen Share WS connected from %s", request.remote)
+        if self._on_screen_connect:
+            self._on_screen_connect()
 
         async for msg in ws:
             if msg.type == WSMsgType.BINARY:
                 try:
-                    self._frame_queue.put_nowait(msg.data)
+                    self._screen_queue.put_nowait(msg.data)
                 except queue.Full:
                     pass  # drop frame – back-pressure
             elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
                 break
 
-        log.info("WebSocket client disconnected from %s", request.remote)
-        if self._on_disconnect:
-            self._on_disconnect()
+        log.info("Screen Share WS disconnected from %s", request.remote)
+        if self._on_screen_disconnect:
+            self._on_screen_disconnect()
         return ws
